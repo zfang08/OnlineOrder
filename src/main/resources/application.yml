@@ -1,0 +1,27 @@
+spring:
+  cache:
+    caffeine:
+      spec: expireAfterWrite=60s
+
+  jackson:
+    default-property-inclusion: non_null
+    property-naming-strategy: SNAKE_CASE
+  datasource: #指定我们的数据源
+    url: jdbc:postgresql://${DATABASE_URL:localhost}:${DATABASE_PORT:5432}/onlineorder
+    username: ${DATABASE_USERNAME:postgres}            #每个数据库都有一个用户
+    password: ${DATABASE_PASSWORD:secret}              #给默认用户设置的密码
+    driver-class-name: org.postgresql.Driver           #要连接的数据库的驱动
+  sql:      #数据库连接之后怎么调用我们的init 文件，初始化我们数据库里面的table
+    init:
+      mode: ${INIT_DB:always}    #总是初始化：这样方便开发， 保持数据干净
+      schema-locations: "classpath:database-init.sql"
+
+logging:
+  level:
+    org.apache.coyote.http11.Http11InputBuffer: TRACE      #控制http 请求的，实现http 内部的class
+    org.springframework.jdbc.datasource.init: DEBUG
+    org.springframework.jdbc.core: DEBUG # SQL
+
+
+
+
