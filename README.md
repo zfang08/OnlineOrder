@@ -1,6 +1,6 @@
 # OnlineOrder
 
-A full-stack food-ordering web application inspired by DoorDash. Customers can browse restaurants, view menus, add items to a shopping cart, and check out. The backend is a Spring Boot REST API backed by PostgreSQL; the frontend is a pre-built React single-page app served as static resources from the same Spring Boot process.
+A full-stack food-ordering web application inspired by DoorDash. Customers can browse restaurants, view menus, add items to a shopping cart, and check out. The backend is a Spring Boot REST API backed by PostgreSQL; the frontend is a React single-page app (Create React App + Ant Design) that lives in `frontend/` and is built into static assets served by the same Spring Boot process.
 
 ---
 
@@ -14,12 +14,13 @@ A full-stack food-ordering web application inspired by DoorDash. Customers can b
 6. [Authentication & Authorization](#authentication--authorization)
 7. [Caching](#caching)
 8. [Configuration](#configuration)
-9. [Getting Started](#getting-started)
-10. [Running the App](#running-the-app)
-11. [Building the Docker Image](#building-the-docker-image)
-12. [Testing](#testing)
-13. [Seed Data](#seed-data)
-14. [Troubleshooting](#troubleshooting)
+9. [Frontend](#frontend)
+10. [Getting Started](#getting-started)
+11. [Running the App](#running-the-app)
+12. [Building the Docker Image](#building-the-docker-image)
+13. [Testing](#testing)
+14. [Seed Data](#seed-data)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -35,7 +36,8 @@ A full-stack food-ordering web application inspired by DoorDash. Customers can b
 | Cache        | `spring-boot-starter-cache` + Caffeine 3.x                                 |
 | Build        | Gradle (wrapper included)                                                  |
 | Containerize | Docker + Docker Compose                                                    |
-| Frontend     | Pre-built React bundle served from `src/main/resources/public/`            |
+| Frontend     | React 18 + Ant Design 4, bootstrapped with Create React App (`frontend/`)  |
+| Frontend build | `react-scripts` (webpack); production bundle copied to `src/main/resources/public/` |
 | Testing      | JUnit 5 (Jupiter), Mockito, `spring-boot-starter-test`                     |
 
 ---
@@ -46,10 +48,12 @@ The project follows a classic layered architecture:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                React SPA (static bundle)                 │
-│           src/main/resources/public/index.html           │
+│                React SPA (Ant Design)                    │
+│  dev:  frontend/  →  npm start (CRA dev server :3000)    │
+│  prod: frontend/build/  →  src/main/resources/public/    │
 └────────────────────────┬─────────────────────────────────┘
                          │  HTTP / JSON
+                         │  (CRA proxy → :8080 in dev)
 ┌────────────────────────▼─────────────────────────────────┐
 │                  @RestController                         │
 │   CustomerController · MenuController · CartController   │
@@ -116,7 +120,25 @@ OnlineOrder/
 │       └── java/com/laioffer/onlineorder/
 │           ├── OnlineOrderApplicationTests.java
 │           └── CartServiceTests.java         # Mockito unit tests for CartService
+└── frontend/                                 # React SPA (Create React App)
+    ├── package.json                          # Scripts + deps (react, antd, react-scripts)
+    ├── public/
+    │   ├── index.html                        # CRA HTML template
+    │   ├── favicon.ico, logo*.png, manifest.json, robots.txt
+    └── src/
+        ├── index.js                          # React entry point
+        ├── App.js                            # Top-level layout + auth gate
+        ├── App.css / index.css               # Global styles
+        ├── utils.js                          # fetch() wrappers for the REST API
+        ├── reportWebVitals.js / setupTests.js
+        └── components/
+            ├── LoginForm.js                  # POST /login
+            ├── SignupForm.js                 # POST /signup
+            ├── FoodList.js                   # GET /restaurants/menu, /restaurant/{id}/menu
+            └── MyCart.js                     # GET/POST /cart, POST /cart/checkout
 ```
+
+> **Note on naming:** the root-level `src/` is the Spring Boot/Gradle backend (standard `src/main/java` layout). The React source lives under `frontend/src/`. If the asymmetry is confusing, consider promoting the backend into a `backend/` module — it's a cosmetic change but makes the monorepo structure explicit.
 
 ---
 
@@ -255,12 +277,87 @@ spring:
 
 ---
 
+## Frontend
+
+The React app lives in `frontend/`. It was bootstrapped with [Create React App](https://github.com/facebook/create-react-app) and uses [Ant Design 4](https://4x.ant.design/) for UI components.
+
+### Key dependencies
+
+| Package          | Version  | Role                                                 |
+| ---------------- | -------- | ---------------------------------------------------- |
+| `react`          | ^18.3.1  | UI library                                           |
+| `react-dom`      | ^18.3.1  | DOM renderer                                         |
+| `antd`           | ^4.24.16 | Component library (Layout, Form, Card, etc.)         |
+| `react-scripts`  | 5.0.1    | CRA build/dev tooling (webpack 5, Babel, ESLint)    |
+| `web-vitals`     | ^2.1.4   | Performance metrics                                  |
+| `@testing-library/*` | latest | Jest + React Testing Library                       |
+
+### Component map
+
+| Component       | Responsibility                                                                 |
+| --------------- | ------------------------------------------------------------------------------ |
+| `App.js`        | Top-level layout, holds the `authed` state, switches between login and food list |
+| `LoginForm.js`  | Calls `POST /login`; on success flips `authed → true`                          |
+| `SignupForm.js` | Calls `POST /signup`                                                           |
+| `FoodList.js`   | Loads restaurants + menus via `GET /restaurants/menu` and `GET /restaurant/{id}/menu` |
+| `MyCart.js`     | Reads cart (`GET /cart`), adds items (`POST /cart`), checks out (`POST /cart/checkout`) |
+| `utils.js`      | All `fetch()` wrappers — single source of truth for backend URLs               |
+
+### Dev proxy
+
+`frontend/package.json` declares:
+
+```json
+"proxy": "http://localhost:8080"
+```
+
+This means CRA's dev server (`npm start`, port 3000) transparently forwards unknown requests (e.g. `/login`, `/restaurants/menu`, `/cart`) to the Spring Boot app on port 8080 — so the frontend can use **relative URLs** like `fetch("/cart")` and authentication cookies still work.
+
+### Frontend dev workflow
+
+```bash
+cd frontend
+npm install         # first time only
+npm start           # opens http://localhost:3000 with hot reload
+```
+
+Make sure the backend is also running on `:8080` (see [Running the App](#running-the-app)) so the proxy has somewhere to forward API calls.
+
+### Building the production bundle
+
+```bash
+cd frontend
+npm run build       # outputs to frontend/build/
+```
+
+To have the Spring Boot app serve the new bundle, copy the build output into the backend's static resources directory:
+
+```bash
+# From project root, after `npm run build`
+rm -rf src/main/resources/public
+cp -r frontend/build src/main/resources/public
+```
+
+> Currently this copy is a manual step. If you want it automated, you can either (a) add a Gradle task that runs `npm run build` and copies the output, or (b) use a plugin like `com.github.node-gradle.node`. Neither is wired up yet.
+
+### Frontend tests
+
+```bash
+cd frontend
+npm test            # interactive Jest watcher (press `a` to run all)
+```
+
+The CRA scaffold includes a smoke test for `App.js` (`App.test.js`) and `setupTests.js` for `@testing-library/jest-dom` matchers.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
 
 - **JDK 21** (the Gradle toolchain will download one if you don't have it; otherwise install Temurin 21).
 - **Docker Desktop** (or any local Docker engine + Docker Compose) for running PostgreSQL.
+- **Node.js 18+** and **npm 9+** — only required if you intend to develop or rebuild the React frontend in `frontend/`. Not needed if you just want to run the backend with the pre-built bundle in `src/main/resources/public/`.
 - Optional: an HTTP client like `curl`, HTTPie, or Postman for testing the API.
 
 ### Clone
@@ -294,17 +391,30 @@ From the project root:
 .\gradlew.bat bootRun
 ```
 
-The app boots on **<http://localhost:8080>**. The bundled React UI is served at `/`. On first startup the `DevRunner` seeds a user you can log in with immediately:
+The app boots on **<http://localhost:8080>**. The bundled React UI (whatever was last copied into `src/main/resources/public/`) is served at `/`. On first startup the `DevRunner` seeds a user you can log in with immediately:
 
 - **Email:** `foo@mail.com`
 - **Password:** `123456`
 
 > If the app crashes on startup with a "duplicate key" error from `DevRunner`, it's because `INIT_DB=always` wasn't honored or the seed user already exists. Stop the container, drop the volume (`docker compose down -v`), and restart.
 
-### 3. Stop everything
+### 3. (Optional) Start the React dev server
+
+If you're iterating on the frontend, leave the Spring Boot app running and start CRA in a second terminal:
 
 ```bash
-# Stop the app: Ctrl+C in the bootRun terminal
+cd frontend
+npm install         # first time only
+npm start
+```
+
+Open **<http://localhost:3000>** for the hot-reloading UI. API calls (`/login`, `/cart`, `/restaurants/menu`, …) are proxied to `localhost:8080`, so the cookie-based session works the same as in production.
+
+### 4. Stop everything
+
+```bash
+# Stop the React dev server (if running): Ctrl+C in its terminal
+# Stop the Spring Boot app: Ctrl+C in the bootRun terminal
 # Stop the database:
 docker compose down
 ```
@@ -316,6 +426,10 @@ docker compose down
 The provided `Dockerfile` expects a pre-built fat JAR at `build/libs/OnlineOrder-0.0.1-SNAPSHOT.jar`.
 
 ```bash
+# 0. (If you changed the frontend) rebuild the bundle and copy it in
+cd frontend && npm run build && cd ..
+rm -rf src/main/resources/public && cp -r frontend/build src/main/resources/public
+
 # 1. Build the jar
 ./gradlew clean bootJar
 
@@ -374,6 +488,9 @@ Image URLs point at DoorDash's public CDN; no images are bundled with the repo.
 | `DevRunner` fails on startup with a duplicate-key error              | The seed user already exists. Drop the Postgres volume (`docker compose down -v`) or set `INIT_DB=always`.               |
 | Want to keep data between runs                                       | Set `INIT_DB=never` and avoid `docker compose down -v` (which deletes the volume).                                       |
 | Gradle complains it can't find a JDK                                 | Install JDK 21 or let the Gradle toolchain auto-provision one (requires `--refresh-dependencies` and network access).    |
+| Frontend changes don't show up at `localhost:8080`                   | The Spring Boot app serves `src/main/resources/public/`, not `frontend/`. Run `npm run build` and copy `frontend/build/` over (see [Frontend](#frontend)). |
+| `npm start` shows a blank page or `Network Error`                    | The CRA dev server needs the backend on `:8080` for its proxy to work. Start the Spring Boot app first.                  |
+| `npm install` fails with `EACCES` / permissions                      | Don't run `npm install` with `sudo`. Use a Node version manager (`nvm`, `fnm`, `volta`) so `node_modules` is owned by you.|
 
 ---
 
